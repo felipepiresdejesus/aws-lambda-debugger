@@ -1,0 +1,91 @@
+{
+  "branches": [
+    {
+      "name": "main"
+    },
+    {
+      "name": "master"
+    },
+    {
+      "name": "develop",
+      "prerelease": true
+    }
+  ],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogFile": "CHANGELOG.md"
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "verifyReleaseCmd": "echo 'Verified release ${nextRelease.version}'"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": [
+          "CHANGELOG.md",
+          "gradle.properties",
+          "build.gradle.kts"
+        ],
+        "message": "chore(release): ${nextRelease.version}\n\n${nextRelease.notes}"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "releasedLabels": [
+          "released"
+        ],
+        "addReleases": "top"
+      }
+    ]
+  ],
+  "commitAnalyzerConfig": {
+    "preset": "angular",
+    "releaseRules": [
+      {
+        "type": "feat",
+        "release": "minor"
+      },
+      {
+        "type": "fix",
+        "release": "patch"
+      },
+      {
+        "type": "refactor",
+        "release": "patch"
+      },
+      {
+        "type": "perf",
+        "release": "patch"
+      },
+      {
+        "type": "docs",
+        "release": false
+      },
+      {
+        "type": "style",
+        "release": false
+      },
+      {
+        "type": "test",
+        "release": false
+      },
+      {
+        "type": "ci",
+        "release": false
+      },
+      {
+        "type": "chore",
+        "release": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,105 @@
+<idea-plugin>
+    <id>com.felipejesus.aws-lambda-local-debugger</id>
+    <name>AWS Lambda Test Tool</name>
+    <version>1.0.0</version>
+    <vendor email="contact@felipejesus.com" url="https://github.com/felipepiresdejesus/aws-lambda-debugger">Felipe Jesus</vendor>
+
+    <description><![CDATA[
+    <p><strong>Professional AWS Lambda debugging for .NET developers</strong></p>
+
+    <p>Debug your AWS Lambda functions locally in Rider with one click. This plugin 
+    automates the Lambda Test Tool v2, providing a seamless debugging experience 
+    with automatic prerequisite validation and intelligent process management.</p>
+
+    <h3>Perfect For:</h3>
+    <ul>
+      <li>.NET developers building serverless applications</li>
+      <li>AWS Lambda function debugging and testing</li>
+      <li>Teams using C# and F# for cloud functions</li>
+    </ul>
+
+    <h3>Key Features:</h3>
+    <ul>
+      <li>⚡ One-click debugging with automatic debugger attachment</li>
+      <li>🔧 Zero configuration - auto-detects Lambda projects</li>
+      <li>✓ Prerequisite validation with helpful guidance</li>
+      <li>🚀 Automatic Test Tool installation and management</li>
+      <li>📝 Test event generation for AWS services</li>
+      <li>🔄 Cross-platform support (Windows, macOS, Linux)</li>
+    </ul>
+
+    <h3>Supported IDEs:</h3>
+    <ul>
+      <li>Rider 2024.3 and later</li>
+      <li>Rider 2025.x</li>
+    </ul>
+
+    <p><strong>Resources:</strong></p>
+    <ul>
+      <li><a href="https://github.com/felipepiresdejesus/aws-lambda-debugger">GitHub Repository</a></li>
+      <li><a href="https://github.com/felipepiresdejesus/aws-lambda-debugger/issues">Report Issues</a></li>
+      <li><a href="https://github.com/felipepiresdejesus/aws-lambda-debugger/blob/main/TROUBLESHOOTING.md">Troubleshooting Guide</a></li>
+    </ul>
+    ]]></description>
+
+    <change-notes><![CDATA[
+    <h4>Latest Release Highlights:</h4>
+    <ul>
+      <li>✓ Production-ready release with comprehensive testing</li>
+      <li>✓ Removed development debug logging (273 lines)</li>
+      <li>✓ Fixed deprecated API warnings for JetBrains compatibility</li>
+      <li>✓ Enhanced error handling and user-friendly messages</li>
+      <li>✓ Automatic CI/CD pipeline with semantic versioning</li>
+      <li>✓ Complete documentation and troubleshooting guide</li>
+    </ul>
+
+    <p>See <a href="https://github.com/felipepiresdejesus/aws-lambda-debugger/blob/main/CHANGELOG.md">full changelog</a> for version history.</p>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.rider</depends>
+
+    <issue-tracker>https://github.com/felipepiresdejesus/aws-lambda-debugger/issues</issue-tracker>
+
+    <idea-version since-build="243" until-build="253.*" />
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Run Configuration -->
+        <configurationType implementation="com.aws.lambda.testtool.runconfig.LambdaTestConfigurationType"/>
+        
+        <!-- Program Runner for Run and Debug -->
+        <programRunner implementation="com.aws.lambda.testtool.runconfig.LambdaTestRunner"/>
+        
+        <!-- Project Services -->
+        <projectService serviceImplementation="com.aws.lambda.testtool.services.LambdaProjectDetector"/>
+        <projectService serviceImplementation="com.aws.lambda.testtool.services.PrerequisiteValidator"/>
+        <projectService serviceImplementation="com.aws.lambda.testtool.services.TestToolManager"/>
+        <projectService serviceImplementation="com.aws.lambda.testtool.services.TestToolInstaller"/>
+        
+        <!-- Application Service for Settings -->
+        <applicationService serviceImplementation="com.aws.lambda.testtool.settings.LambdaTestToolSettings"/>
+        
+        <!-- Notification Group -->
+        <notificationGroup id="AWS Lambda Test Tool"
+                           displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <group id="LambdaTestToolActions" text="AWS Lambda" description="AWS Lambda Test Tool actions">
+            <action id="CreateLambdaRunConfiguration"
+                    class="com.aws.lambda.testtool.actions.CreateLambdaConfigAction"
+                    text="Create Lambda Test Configuration"
+                    description="Create a run configuration for this Lambda project"
+                    icon="/icons/icon_16.png">
+            </action>
+            
+            <action id="GenerateTestEvent"
+                    class="com.aws.lambda.testtool.actions.GenerateTestEventAction"
+                    text="Generate Test Event..."
+                    description="Generate a test event JSON file for Lambda testing"
+                    icon="AllIcons.FileTypes.Json">
+            </action>
+            
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="after" relative-to-action="RunContextGroup"/>
+        </group>
+    </actions>
+</idea-plugin>

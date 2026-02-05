@@ -1,0 +1,59 @@
+# Gradle
+.gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# IntelliJ IDEA / Rider
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.idea_modules/
+
+# IntelliJ Platform Plugin Development
+.intellijPlatform/
+idea-sandbox/
+
+# Debug logs
+.cursor/debug.log
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# Java
+*.class
+*.log
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+
+# Exception: Include gradle wrapper jar
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Kotlin
+*.kotlin_module
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Configuration cache
+.gradle/configuration-cache/
+
+# Local configuration files
+local.properties
+gradle.properties.local

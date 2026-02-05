@@ -1,0 +1,31 @@
+{
+  "name": "aws-lambda-debugger",
+  "version": "1.1.2",
+  "description": "AWS Lambda Test Tool for JetBrains Rider",
+  "author": "Felipe Jesus",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/felipepiresdejesus/aws-lambda-debugger.git"
+  },
+  "bugs": {
+    "url": "https://github.com/felipepiresdejesus/aws-lambda-debugger/issues"
+  },
+  "homepage": "https://github.com/felipepiresdejesus/aws-lambda-debugger",
+  "keywords": [
+    "jetbrains",
+    "rider",
+    "aws",
+    "lambda",
+    "dotnet",
+    "debugging"
+  ],
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.0",
+    "@semantic-release/commit-analyzer": "^11.0.0",
+    "@semantic-release/exec": "^6.0.0",
+    "@semantic-release/git": "^10.0.0",
+    "@semantic-release/github": "^9.0.0",
+    "@semantic-release/release-notes-generator": "^12.0.0",
+    "semantic-release": "^22.0.0"
+  }
+}
