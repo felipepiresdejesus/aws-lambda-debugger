@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/felipepiresdejesus/aws-lambda-debugger/compare/v1.0.0...v1.1.0) (2026-02-06)
+
+
+### Features
+
+* add .NET debugger auto-attachment with startup hook ([b7286b2](https://github.com/felipepiresdejesus/aws-lambda-debugger/commit/b7286b256cba38aa0160a83f0f9e291b7065bbcc))
+
 # 1.0.0 (2026-02-05)
 
 
