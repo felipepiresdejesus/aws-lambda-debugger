@@ -1,26 +1,27 @@
 package com.aws.lambda.testtool.runconfig
 
 import com.aws.lambda.testtool.services.TestToolManager
-import com.aws.lambda.testtool.services.debugger.DebuggerAttachmentService
 import com.aws.lambda.testtool.services.debugger.ProcessPidExtractor
 import com.aws.lambda.testtool.services.debugger.RiderDebuggerAttachmentService
 import com.aws.lambda.testtool.services.process.ProcessManager
 import com.aws.lambda.testtool.services.process.PlatformProcessManager
 import com.intellij.execution.executors.DefaultDebugExecutor
 import com.intellij.execution.executors.DefaultRunExecutor
+import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.execution.runners.GenericProgramRunner
 import com.intellij.execution.runners.RunContentBuilder
 import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.execution.configurations.RunProfile
 import com.intellij.execution.configurations.RunnerSettings
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
-import com.intellij.util.messages.MessageBusConnection
 
 /**
  * Program runner for Lambda Test configurations.
@@ -30,13 +31,8 @@ import com.intellij.util.messages.MessageBusConnection
  * - Debug mode: Executes the Lambda function and automatically attaches Rider's debugger
  */
 class LambdaTestRunner : GenericProgramRunner<RunnerSettings>() {
-    
+
     private val LOG = Logger.getInstance(LambdaTestRunner::class.java)
-    private val debuggerService: DebuggerAttachmentService = RiderDebuggerAttachmentService()
-    
-    companion object {
-        private const val DEBUGGER_ATTACH_DELAY_MS = 1000L
-    }
     
     override fun getRunnerId(): String = "LambdaTestRunner"
     
@@ -51,110 +47,105 @@ class LambdaTestRunner : GenericProgramRunner<RunnerSettings>() {
     ): RunContentDescriptor? {
         val lambdaState = state as? LambdaTestRunState ?: return null
         val isDebugMode = environment.executor is DefaultDebugExecutor
-        
-        // Execute the process
+
+        LOG.info("LambdaTestRunner.doExecute: isDebugMode=$isDebugMode")
+
+        // Execute the process (starts Test Tool + Lambda)
         val executionResult = try {
             lambdaState.execute(environment.executor, this)
         } catch (e: Exception) {
-            LOG.error("Failed to execute state", e)
+            LOG.error("Failed to execute Lambda process", e)
             throw e
         }
-        
+
         val processHandler = executionResult.processHandler
         if (processHandler == null) {
             LOG.warn("Process handler is null")
             return RunContentBuilder(executionResult, environment).showRunContent(environment.contentToReuse)
         }
-        
-        // Handle debug mode: auto-attach debugger
+
+        val project = lambdaState.getProject()
+        val configuration = lambdaState.getConfiguration()
+
+        // Register cleanup listener for when process or debug session ends
+        registerDebugSessionCleanup(project, processHandler, configuration.port)
+
+        // Build the run content (process output tab) for both Run and Debug modes.
+        // In debug mode this also serves as the "active run" marker so the IDE prevents
+        // duplicate launches when the user clicks Debug multiple times.
+        val contentDescriptor = RunContentBuilder(executionResult, environment).showRunContent(environment.contentToReuse)
+
+        // Set a descriptive tab name: "ProjectName - Console"
+        val projectName = configuration.projectPath?.let { java.io.File(it).nameWithoutExtension }
+            ?: configuration.name
+        setDescriptorDisplayName(contentDescriptor, "$projectName - Console")
+
         if (isDebugMode) {
-            // Store process handler reference for cleanup when debug session ends
-            val project = lambdaState.getProject()
-            val configuration = lambdaState.getConfiguration()
-            
-            // Start progress indicator immediately
-            ProgressManager.getInstance().run(object : Task.Backgroundable(
-                project,
-                "Starting Lambda Debug Session",
-                true
-            ) {
-                override fun run(indicator: ProgressIndicator) {
-                    indicator.text = "Starting Lambda function..."
-                    indicator.isIndeterminate = true
-                    
-                    try {
-                        // Wait a moment for process to initialize, then attach debugger
-                        // Poll for PID instead of fixed delay
-                        var attempts = 0
-                        val maxAttempts = 20 // 2 seconds max (20 * 100ms)
-                        var pid: Int? = null
-                        
-                        while (attempts < maxAttempts && pid == null) {
-                            Thread.sleep(100)
-                            attempts++
-                            
-                            if (processHandler.isProcessTerminated || processHandler.isProcessTerminating) {
-                                indicator.text = "Process terminated before debugger attachment"
-                                return
-                            }
-                            
-                            val pidLong = ProcessPidExtractor.getPid(processHandler)
-                            pid = pidLong?.toInt()
-                            
-                            if (pid == null) {
-                                indicator.text = "Waiting for Lambda process to start... (${attempts * 100}ms)"
-                            }
-                        }
-                        
-                        if (pid != null) {
-                            indicator.text = "Attaching debugger to process (PID: $pid)..."
-                            
-                            // Verify this is NOT the Test Tool's PID
-                            val testToolManager = TestToolManager.getInstance(project)
-                            val testToolStatus = testToolManager.getStatus()
-                            val testToolPid = testToolStatus.processId
-                            
-                            if (testToolPid != null && testToolPid == pid.toLong()) {
-                                indicator.text = "Error: Attempted to attach to Test Tool instead of Lambda function"
-                                LOG.error("CRITICAL: Attempted to attach debugger to Test Tool process (PID: $pid) instead of Lambda function!")
-                                return
-                            }
-                            
-                            indicator.text = "Attaching debugger..."
-                            val attached = debuggerService.attachDebugger(project, pid, configuration.port, configuration.autoOpenBrowser)
-                            
-                            if (attached) {
-                                indicator.text = "Debugger attached successfully"
-                                LOG.info("Successfully attached debugger to Lambda function process PID: $pid")
-                            } else {
-                                indicator.text = "Failed to attach debugger (use Run → Attach to Process manually)"
-                                LOG.warn("Failed to attach debugger to Lambda function process PID: $pid")
-                            }
-                        } else {
-                            indicator.text = "Could not get process PID - debugger attachment skipped"
-                            LOG.warn("Could not get process PID for debugger attachment")
-                        }
-                    } catch (e: Exception) {
-                        indicator.text = "Error: ${e.message}"
-                        LOG.warn("Failed to auto-attach debugger", e)
-                    }
-                }
-            })
-            
-            // Register cleanup listener for when debug session is stopped
-            // This ensures Test Tool is stopped even when we return null (no RunContentDescriptor)
-            registerDebugSessionCleanup(project, processHandler, configuration.port)
-            
-            // In debug mode, don't show the "running" process - only show the debug session
-            // The debugger attachment creates its own visible session, so we return null
-            // to avoid showing a duplicate "running" process
-            return null
-        } else {
-            handleRunMode(lambdaState)
-            return RunContentBuilder(executionResult, environment).showRunContent(environment.contentToReuse)
+            LOG.info("Debug mode: Will attach Rider's .NET debugger to Lambda process")
+            attachDebuggerAsync(project, processHandler, configuration.port, configuration.autoOpenBrowser)
         }
+
+        return contentDescriptor
     }
-    
+
+    /**
+     * Attaches Rider's .NET debugger to the Lambda process with a visible
+     * progress bar in the IDE status bar.
+     */
+    private fun attachDebuggerAsync(
+        project: Project,
+        processHandler: ProcessHandler,
+        port: Int,
+        autoOpenBrowser: Boolean
+    ) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Lambda Debugger", false) {
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = false
+                indicator.fraction = 0.1
+                indicator.text = "Waiting for Lambda process to start..."
+
+                // Wait for the process to appear in the OS process list.
+                // The startup hook pauses it until the debugger attaches.
+                Thread.sleep(2000)
+
+                if (processHandler.isProcessTerminated || processHandler.isProcessTerminating) {
+                    LOG.warn("Lambda process already terminated before debugger could attach")
+                    return
+                }
+
+                indicator.fraction = 0.3
+                indicator.text = "Resolving Lambda process..."
+
+                val pid = ProcessPidExtractor.getPid(processHandler)
+                if (pid == null) {
+                    LOG.warn("Could not get PID from process handler, cannot attach debugger")
+                    showNotification(
+                        project,
+                        "Could not determine Lambda process PID. Use Run -> Attach to Process to debug manually.",
+                        NotificationType.WARNING
+                    )
+                    return
+                }
+
+                indicator.fraction = 0.5
+                indicator.text = "Attaching .NET debugger (PID: $pid)..."
+
+                LOG.info("Attaching Rider's .NET debugger to Lambda process (PID: $pid)")
+
+                val attachService = RiderDebuggerAttachmentService()
+                val attached = attachService.attachDebugger(project, pid.toInt(), port, autoOpenBrowser)
+
+                if (attached) {
+                    LOG.info("Debugger successfully attached to Lambda process (PID: $pid)")
+                    indicator.fraction = 1.0
+                    indicator.text = "Debugger attached"
+                } else {
+                    LOG.warn("Auto-attach failed for PID: $pid. User was notified to attach manually.")
+                }
+            }
+        })
+    }
+
     /**
      * Registers cleanup listeners to ensure Test Tool is stopped when debug session ends.
      * This is needed because we return null in debug mode (no RunContentDescriptor),
@@ -166,55 +157,48 @@ class LambdaTestRunner : GenericProgramRunner<RunnerSettings>() {
         processHandler: com.intellij.execution.process.ProcessHandler,
         port: Int
     ) {
-        // #region agent log
-        
         val testToolManager = TestToolManager.getInstance(project)
         
         // Add listener to debug session manager to cleanup when debug session stops
         // This is the most reliable way to detect when the user stops debugging
         try {
-            // #region agent log
-            
-            val xDebuggerManager = com.intellij.xdebugger.XDebuggerManager.getInstance(project)
             val messageBus = project.messageBus.connect()
             messageBus.subscribe(
                 com.intellij.xdebugger.XDebuggerManager.TOPIC,
                 object : com.intellij.xdebugger.XDebuggerManagerListener {
                     override fun processStarted(debugProcess: com.intellij.xdebugger.XDebugProcess) {
-                        // #region agent log
+                        LOG.debug("Debug process started: ${debugProcess.session?.sessionName}")
                     }
                     
                     override fun processStopped(debugProcess: com.intellij.xdebugger.XDebugProcess) {
-                        // #region agent log
-                        
                         // Debug process stopped - check if it's our Lambda process
+                        // Session name is formatted as "PID:ProjectName" by Rider's attach mechanism
                         try {
-                            val sessionPid = ProcessPidExtractor.getPid(debugProcess.processHandler)
                             val lambdaPid = ProcessPidExtractor.getPid(processHandler)
-                            if (sessionPid != null && lambdaPid != null && sessionPid == lambdaPid) {
-                                // #region agent log
-                                LOG.info("Debug session stopped for Lambda process (PID: $sessionPid), stopping Test Tool on port $port (port-based cleanup)...")
+                            val sessionName = debugProcess.session?.sessionName ?: ""
+                            val isOurSession = lambdaPid != null && sessionName.startsWith("$lambdaPid:")
+                            if (isOurSession) {
+                                LOG.info("Debug session '$sessionName' stopped, cleaning up...")
+                                if (!processHandler.isProcessTerminated) {
+                                    processHandler.destroyProcess()
+                                }
                                 testToolManager.stopTestToolByPort(port)
                                 messageBus.disconnect()
                             }
                         } catch (e: Exception) {
-                            // #region agent log
                             LOG.warn("Error checking if stopped debug process is our Lambda process", e)
                         }
                     }
                 }
             )
             
-            // #region agent log
         } catch (e: Exception) {
-            // #region agent log
             LOG.warn("Failed to register debug session listener, will rely on process listeners only", e)
         }
         
         // Add listener to process handler to cleanup when Lambda process terminates
         processHandler.addProcessListener(object : com.intellij.execution.process.ProcessAdapter() {
             override fun processTerminated(event: com.intellij.execution.process.ProcessEvent) {
-                // #region agent log
                 LOG.info("Lambda process terminated in debug mode, stopping Test Tool on port $port (port-based cleanup)...")
                 // Use port-based cleanup to ensure Test Tool is stopped
                 testToolManager.stopTestToolByPort(port)
@@ -224,7 +208,6 @@ class LambdaTestRunner : GenericProgramRunner<RunnerSettings>() {
                 event: com.intellij.execution.process.ProcessEvent,
                 willBeDestroyed: Boolean
             ) {
-                // #region agent log
                 if (willBeDestroyed) {
                     LOG.info("Lambda process will be destroyed in debug mode, stopping Test Tool on port $port (port-based cleanup)...")
                     // Use port-based cleanup to ensure Test Tool is stopped
@@ -261,46 +244,28 @@ class LambdaTestRunner : GenericProgramRunner<RunnerSettings>() {
                         false // No PID means process is gone
                     }
                     
-                    // Check if there are any active debug sessions at all
-                    // If process is alive but no debug sessions exist, debugging was stopped
+                    // Check if our debug session is still active
+                    // Session name is "PID:ProjectName" by Rider's attach mechanism
                     var hasActiveDebugSession = false
-                    var debugSessionCount = 0
-                    var debugSessionPids = emptyList<Long?>()
                     if (pid != null && processAlive && !isTerminated) {
                         try {
                             val xDebuggerManager = com.intellij.xdebugger.XDebuggerManager.getInstance(project)
-                            val debugSessions = xDebuggerManager.debugSessions
-                            debugSessionCount = debugSessions.size
-                            debugSessionPids = debugSessions.mapNotNull { session ->
-                                try {
-                                    val sessionHandler = session.debugProcess?.processHandler
-                                    if (sessionHandler != null) {
-                                        ProcessPidExtractor.getPid(sessionHandler)
-                                    } else {
-                                        null
-                                    }
-                                } catch (e: Exception) {
-                                    null
-                                }
+                            hasActiveDebugSession = xDebuggerManager.debugSessions.any { session ->
+                                session.sessionName?.startsWith("$pid:") == true
                             }
-                            // Check if any session matches our PID, OR if there are any sessions at all
-                            // (if there are sessions but we can't match by PID, assume one might be ours)
-                            hasActiveDebugSession = debugSessionPids.any { sessionPid -> sessionPid != null && sessionPid == pid } || debugSessionCount > 0
                         } catch (e: Exception) {
-                            // #region agent log
-                            // If we can't check, assume no session (safer to cleanup)
                             hasActiveDebugSession = false
                         }
                     }
-                    
-                    // #region agent log
                     
                     // If process handler is terminated OR Lambda process is no longer alive OR no active debug session, kill anything on the port
                     // This will kill the Test Tool if it's still running (or do nothing if nothing is on the port)
                     // When debugging stops, the process stays alive but the debug session ends, so we check for active sessions
                     if (isTerminated || !processAlive || (processAlive && !hasActiveDebugSession && checkCount > 5)) {
-                        // #region agent log
-                        LOG.info("Cleanup condition met (terminated=$isTerminated, alive=$processAlive, hasSession=$hasActiveDebugSession), stopping Test Tool on port $port (port-based cleanup)...")
+                        LOG.info("Cleanup condition met (terminated=$isTerminated, alive=$processAlive, hasSession=$hasActiveDebugSession), cleaning up...")
+                        if (!processHandler.isProcessTerminated) {
+                            processHandler.destroyProcess()
+                        }
                         testToolManager.stopTestToolByPort(port)
                         break
                     }
@@ -324,6 +289,30 @@ class LambdaTestRunner : GenericProgramRunner<RunnerSettings>() {
         if (configuration.autoOpenBrowser) {
             val testToolManager = TestToolManager.getInstance(lambdaState.getProject())
             testToolManager.openBrowser(configuration.port)
+        }
+    }
+
+    private fun setDescriptorDisplayName(descriptor: RunContentDescriptor?, name: String) {
+        if (descriptor == null) return
+        try {
+            val method = RunContentDescriptor::class.java.getDeclaredMethod("setDisplayName", String::class.java)
+            method.isAccessible = true
+            method.invoke(descriptor, name)
+        } catch (e: Exception) {
+            LOG.debug("Could not set custom display name on RunContentDescriptor: ${e.message}")
+        }
+    }
+
+    private fun showNotification(project: Project, message: String, type: NotificationType) {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                NotificationGroupManager.getInstance()
+                    .getNotificationGroup("AWS Lambda Test Tool")
+                    ?.createNotification(message, type)
+                    ?.notify(project)
+            } catch (e: Exception) {
+                LOG.warn("Failed to show notification: $message", e)
+            }
         }
     }
 }

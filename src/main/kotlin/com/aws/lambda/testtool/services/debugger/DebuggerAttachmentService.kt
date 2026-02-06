@@ -8,7 +8,6 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.UserDataHolder
-import java.util.concurrent.TimeUnit
 
 /**
  * Service for attaching debuggers to running processes.
@@ -34,13 +33,22 @@ class RiderDebuggerAttachmentService : DebuggerAttachmentService {
     
     private val LOG = Logger.getInstance(RiderDebuggerAttachmentService::class.java)
     
+    /**
+     * Attaches the debugger with retries to handle timing issues.
+     * The Lambda process may not be visible in the OS process list immediately.
+     * Called from a background thread - this method blocks until attachment completes or all retries are exhausted.
+     */
     override fun attachDebugger(project: Project, pid: Int, port: Int, autoOpenBrowser: Boolean): Boolean {
-        return ApplicationManager.getApplication().executeOnPooledThread<Boolean> {
+        val maxAttempts = 5
+        val retryDelayMs = 1500L
+
+        for (attempt in 1..maxAttempts) {
             try {
-                LOG.info("Attempting to attach debugger to PID: $pid")
+                LOG.info("Attempting to attach debugger to PID: $pid (attempt $attempt/$maxAttempts)")
                 val attached = tryXDebuggerAttach(project, pid)
-                
+
                 if (attached) {
+                    LOG.info("Debugger attached successfully on attempt $attempt")
                     if (autoOpenBrowser) {
                         ApplicationManager.getApplication().invokeLater {
                             openBrowser(port)
@@ -49,75 +57,81 @@ class RiderDebuggerAttachmentService : DebuggerAttachmentService {
                     ApplicationManager.getApplication().invokeLater {
                         showNotification(project, "Debugger attached to Lambda (PID: $pid)", NotificationType.INFORMATION)
                     }
-                    true
-                } else {
-                    ApplicationManager.getApplication().invokeLater {
-                        showNotification(
-                            project,
-                            "Lambda running (PID: $pid). Use Run → Attach to Process → .NET Core to debug with breakpoints.",
-                            NotificationType.INFORMATION
-                        )
-                    }
-                    false
+                    return true
+                }
+
+                if (attempt < maxAttempts) {
+                    LOG.info("Attachment attempt $attempt failed, retrying in ${retryDelayMs}ms...")
+                    Thread.sleep(retryDelayMs)
                 }
             } catch (e: Exception) {
-                LOG.warn("Failed to attach debugger: ${e.message}", e)
-                ApplicationManager.getApplication().invokeLater {
-                    showNotification(project, "Lambda running (PID: $pid). Use Run → Attach to Process to debug.", NotificationType.INFORMATION)
+                LOG.warn("Attachment attempt $attempt failed with exception: ${e.message}", e)
+                if (attempt < maxAttempts) {
+                    Thread.sleep(retryDelayMs)
                 }
-                false
             }
-        }.get(5, TimeUnit.SECONDS) ?: false
+        }
+
+        // All attempts failed - notify user to attach manually
+        LOG.warn("All $maxAttempts attachment attempts failed for PID: $pid")
+        ApplicationManager.getApplication().invokeLater {
+            showNotification(
+                project,
+                "Could not auto-attach debugger to Lambda (PID: $pid). Use Run -> Attach to Process -> .NET Core to debug with breakpoints.",
+                NotificationType.WARNING
+            )
+        }
+        return false
     }
     
     private fun tryXDebuggerAttach(project: Project, pid: Int): Boolean {
-        // #region agent log
-        
         return try {
             val localAttachHost = getLocalAttachHost()
             val processes = getProcessList(localAttachHost)
-            
-            // #region agent log
-            
+
+            LOG.info("Available processes from attach host: ${processes.size} total")
+            for (process in processes) {
+                try {
+                    val procPid = getProcessPid(process)
+                    val procName = getProcessName(process)
+                    if (procPid != null) {
+                        LOG.info("  Process: PID=$procPid, Name=$procName")
+                    }
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+
             // Filter out Test Tool processes before searching
-            // Note: We filter by name, but the Lambda function should be named "LambdaFunction" (not "LambdaTestTool")
             val filteredProcesses = processes.filter { process ->
                 val processName = getProcessName(process)
                 val isTestTool = processName != null && (
                     processName.contains("LambdaTestTool", ignoreCase = true) ||
                     processName.contains("dotnet-lambda-test-tool", ignoreCase = true)
                 )
-                if (isTestTool) {
-                    // #region agent log
-                    LOG.debug("Filtering out Test Tool process: $processName")
-                }
                 !isTestTool
             }
-            
+
             LOG.info("Searching for Lambda function process with PID: $pid (filtered ${processes.size - filteredProcesses.size} Test Tool processes)")
             val targetProcess = findProcessByPid(filteredProcesses, pid)
             
             if (targetProcess == null) {
-                // #region agent log
-                
-                LOG.warn("Lambda function process $pid not found in process list (Test Tool processes were filtered out)")
+                LOG.warn("Lambda function process $pid not found in filtered process list")
                 // Try to find it in the unfiltered list for debugging
                 val unfilteredProcess = findProcessByPid(processes, pid)
                 if (unfilteredProcess != null) {
                     val unfilteredName = getProcessName(unfilteredProcess)
-                    // #region agent log
                     LOG.warn("Process $pid exists but was filtered out! Process name: $unfilteredName")
                     LOG.warn("This suggests the Lambda function process name contains 'LambdaTestTool' - this should not happen!")
                 } else {
-                    // #region agent log
+                    LOG.warn("Process $pid is not in the process list at all - it may have already exited or not yet started")
+                    LOG.warn("Available PIDs in filtered list: ${filteredProcesses.mapNotNull { getProcessPid(it) }}")
                 }
                 return false
             }
             
             // Double-check we're not attaching to Test Tool
             val targetProcessName = getProcessName(targetProcess)
-            // #region agent log
-            
             if (targetProcessName != null && (
                 targetProcessName.contains("LambdaTestTool", ignoreCase = true) ||
                 targetProcessName.contains("dotnet-lambda-test-tool", ignoreCase = true)
@@ -129,31 +143,21 @@ class RiderDebuggerAttachmentService : DebuggerAttachmentService {
             LOG.info("Found Lambda function process: PID=$pid, name=$targetProcessName")
             
             val provider = findDotNetDebuggerProvider()
-            // #region agent log
-            
             if (provider == null) {
                 LOG.info("No suitable .NET debugger provider found")
                 return false
             }
             
             val debuggers = getAvailableDebuggers(provider, project, localAttachHost, targetProcess)
-            // #region agent log
-            
             if (debuggers.isEmpty()) {
                 LOG.info("No debuggers available for this process")
                 return false
             }
             
             LOG.info("Attaching debugger to Lambda function process (PID: $pid)")
-            // #region agent log
-            
             val attachResult = attachDebugSession(debuggers.first(), project, localAttachHost, targetProcess)
-            
-            // #region agent log
-            
             attachResult
         } catch (e: Exception) {
-            // #region agent log
             LOG.warn("XDebugger attach failed: ${e.message}", e)
             false
         }
@@ -312,36 +316,39 @@ class RiderDebuggerAttachmentService : DebuggerAttachmentService {
         val attachMethod = debugger.javaClass.methods.find {
             it.name == "attachDebugSession" && it.parameterCount >= 3
         }
-        
-        // #region agent log
-        
+
         if (attachMethod == null) {
+            LOG.warn("No attachDebugSession method found on debugger: ${debugger.javaClass.name}")
             return false
         }
-        
+
+        LOG.info("Found attachDebugSession with ${attachMethod.parameterCount} params on ${debugger.javaClass.name}")
+
         return try {
-            val result = when (attachMethod.parameterCount) {
-                3 -> {
-                    // #region agent log
-                    attachMethod.invoke(debugger, project, localAttachHost, targetProcess)
-                    true
-                }
-                5 -> {
-                    // #region agent log
-                    val progressIndicator = com.intellij.openapi.progress.EmptyProgressIndicator()
-                    attachMethod.invoke(debugger, project, localAttachHost, targetProcess, progressIndicator, progressIndicator)
-                    true
-                }
-                else -> {
-                    // #region agent log
-                    LOG.warn("Unexpected attachDebugSession parameter count: ${attachMethod.parameterCount}")
-                    false
+            // attachDebugSession creates UI elements (debug tab) and must run on EDT
+            var result = false
+            ApplicationManager.getApplication().invokeAndWait {
+                try {
+                    when (attachMethod.parameterCount) {
+                        3 -> {
+                            attachMethod.invoke(debugger, project, localAttachHost, targetProcess)
+                            result = true
+                        }
+                        5 -> {
+                            val progressIndicator = com.intellij.openapi.progress.EmptyProgressIndicator()
+                            attachMethod.invoke(debugger, project, localAttachHost, targetProcess, progressIndicator, progressIndicator)
+                            result = true
+                        }
+                        else -> {
+                            LOG.warn("Unexpected attachDebugSession parameter count: ${attachMethod.parameterCount}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    LOG.warn("Failed to invoke attachDebugSession on EDT: ${e.message}", e)
                 }
             }
-            // #region agent log
             result
         } catch (e: Exception) {
-            // #region agent log
             LOG.warn("Failed to attach debug session: ${e.message}", e)
             false
         }

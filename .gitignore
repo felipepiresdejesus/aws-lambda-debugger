@@ -42,6 +42,11 @@ hs_err_pid*
 !gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
 
+# .NET (startup-hook build artifacts)
+startup-hook/bin/
+startup-hook/obj/
+startup-hook/publish/
+
 # Kotlin
 *.kotlin_module
 

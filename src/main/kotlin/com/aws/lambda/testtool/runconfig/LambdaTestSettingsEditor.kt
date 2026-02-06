@@ -41,6 +41,10 @@ class LambdaTestSettingsEditor(private val project: Project) : SettingsEditor<La
         projectComboBox.renderer = DefaultListCellRenderer().apply {
             setText("Select a Lambda project...")
         }
+
+        // Notify the Run Configuration dialog when the project selection changes,
+        // so it can auto-update the configuration name via suggestedName()
+        projectComboBox.addItemListener { fireEditorStateChanged() }
         
         // Configure port field
         portField.toolTipText = "Port for the Lambda Test Tool (default: 5050)"
@@ -109,7 +113,7 @@ class LambdaTestSettingsEditor(private val project: Project) : SettingsEditor<La
         // Apply project selection
         val selectedItem = projectComboBox.selectedItem as? LambdaProjectItem
         configuration.projectPath = selectedItem?.project?.projectFile?.path
-        
+
         // Apply port
         configuration.port = portField.text.toIntOrNull() ?: 5050
         

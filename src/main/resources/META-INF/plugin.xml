@@ -58,26 +58,27 @@
 
     <depends>com.intellij.modules.rider</depends>
 
-    <issue-tracker>https://github.com/felipepiresdejesus/aws-lambda-debugger/issues</issue-tracker>
-
     <idea-version since-build="243" until-build="253.*" />
 
     <extensions defaultExtensionNs="com.intellij">
+        <!-- Startup Activity for plugin initialization logging -->
+        <projectActivity implementation="com.aws.lambda.testtool.startup.PluginStartupActivity"/>
+
         <!-- Run Configuration -->
         <configurationType implementation="com.aws.lambda.testtool.runconfig.LambdaTestConfigurationType"/>
-        
+
         <!-- Program Runner for Run and Debug -->
         <programRunner implementation="com.aws.lambda.testtool.runconfig.LambdaTestRunner"/>
-        
+
         <!-- Project Services -->
         <projectService serviceImplementation="com.aws.lambda.testtool.services.LambdaProjectDetector"/>
         <projectService serviceImplementation="com.aws.lambda.testtool.services.PrerequisiteValidator"/>
         <projectService serviceImplementation="com.aws.lambda.testtool.services.TestToolManager"/>
         <projectService serviceImplementation="com.aws.lambda.testtool.services.TestToolInstaller"/>
-        
+
         <!-- Application Service for Settings -->
         <applicationService serviceImplementation="com.aws.lambda.testtool.settings.LambdaTestToolSettings"/>
-        
+
         <!-- Notification Group -->
         <notificationGroup id="AWS Lambda Test Tool"
                            displayType="BALLOON"/>

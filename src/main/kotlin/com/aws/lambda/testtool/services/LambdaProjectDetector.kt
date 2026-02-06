@@ -15,9 +15,13 @@ import java.util.concurrent.ConcurrentHashMap
  */
 @Service(Service.Level.PROJECT)
 class LambdaProjectDetector(private val project: Project) {
-    
+
     private val LOG = Logger.getInstance(LambdaProjectDetector::class.java)
     private val cachedProjects = ConcurrentHashMap<String, LambdaProject>()
+
+    init {
+        LOG.info("LambdaProjectDetector service initialized for project: ${project.name}")
+    }
     
     /**
      * Detects all Lambda projects in the current workspace.

@@ -20,9 +20,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 @Service(Service.Level.PROJECT)
 class TestToolInstaller(private val project: Project) {
-    
+
     private val LOG = Logger.getInstance(TestToolInstaller::class.java)
     private val isInstalling = AtomicBoolean(false)
+
+    init {
+        LOG.info("TestToolInstaller service initialized for project: ${project.name}")
+    }
     
     companion object {
         const val TOOL_PACKAGE_NAME = "Amazon.Lambda.TestTool"
@@ -243,9 +247,16 @@ class TestToolInstaller(private val project: Project) {
     }
     
     private fun showNotification(content: String, type: NotificationType) {
-        NotificationGroupManager.getInstance()
-            .getNotificationGroup("AWS Lambda Test Tool")
-            .createNotification(content, type)
-            .notify(project)
+        try {
+            val notificationGroup = NotificationGroupManager.getInstance()
+                .getNotificationGroup("AWS Lambda Test Tool")
+            if (notificationGroup != null) {
+                notificationGroup.createNotification(content, type).notify(project)
+            } else {
+                LOG.warn("Notification group 'AWS Lambda Test Tool' not found")
+            }
+        } catch (e: Exception) {
+            LOG.warn("Failed to show notification: $content", e)
+        }
     }
 }

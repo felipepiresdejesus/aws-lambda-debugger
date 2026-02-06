@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.util.xmlb.XmlSerializerUtil
 
 /**
@@ -14,8 +15,13 @@ import com.intellij.util.xmlb.XmlSerializerUtil
     storages = [Storage("LambdaTestToolSettings.xml")]
 )
 class LambdaTestToolSettings : PersistentStateComponent<LambdaTestToolSettings.State> {
-    
+
+    private val LOG = Logger.getInstance(LambdaTestToolSettings::class.java)
     private var myState = State()
+
+    init {
+        LOG.info("LambdaTestToolSettings service initialized")
+    }
     
     /**
      * State class holding all settings values.

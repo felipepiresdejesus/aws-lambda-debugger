@@ -11,8 +11,12 @@ import com.intellij.openapi.project.Project
  */
 @Service(Service.Level.PROJECT)
 class PrerequisiteValidator(private val project: Project) {
-    
+
     private val LOG = Logger.getInstance(PrerequisiteValidator::class.java)
+
+    init {
+        LOG.info("PrerequisiteValidator service initialized for project: ${project.name}")
+    }
     
     companion object {
         val REQUIRED_PACKAGES = listOf(

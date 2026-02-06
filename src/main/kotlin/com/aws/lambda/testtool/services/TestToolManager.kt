@@ -30,10 +30,14 @@ import java.util.concurrent.atomic.AtomicReference
 class TestToolManager(
     private val project: Project
 ) : Disposable {
-    
+
     private val processManager: ProcessManager = PlatformProcessManager()
-    
+
     private val LOG = Logger.getInstance(TestToolManager::class.java)
+
+    init {
+        LOG.info("TestToolManager service initialized for project: ${project.name}")
+    }
     
     private val processHandler = AtomicReference<OSProcessHandler?>(null)
     private val backgroundProcessPid = AtomicReference<Long?>(null)
@@ -419,16 +423,12 @@ class TestToolManager(
      * This is useful when the process handler isn't available or when cleanup needs to be forced.
      */
     fun stopTestToolByPort(port: Int) {
-        // #region agent log
-        
         LOG.info("Stopping Test Tool by port: $port (port-based cleanup)")
         killProcessesOnPort(port)
         // Also update status
         updateStatus(TestToolStatus.notRunning())
         processHandler.set(null)
         backgroundProcessPid.set(null)
-        
-        // #region agent log
     }
     
     /**
@@ -436,8 +436,6 @@ class TestToolManager(
      * This is useful for cleaning up child processes that may still be running.
      */
     private fun killProcessesOnPort(port: Int) {
-        // #region agent log
-        
         try {
             val isWindows = System.getProperty("os.name").lowercase().contains("windows")
             if (isWindows) {
@@ -461,17 +459,12 @@ class TestToolManager(
                     }
                 }
                 
-                // #region agent log
-                
                 for (pid in pids) {
                     if (pid > 0 && processManager.isProcessAlive(pid)) {
-                        // #region agent log
                         LOG.info("Killing process $pid listening on port $port")
                         try {
                             processManager.killProcess(pid, force = true)
-                            // #region agent log
                         } catch (e: Exception) {
-                            // #region agent log
                             LOG.warn("Failed to kill process $pid on port $port: ${e.message}")
                         }
                     }
@@ -483,32 +476,24 @@ class TestToolManager(
                 val pidOutput = lsofProcess.inputStream.bufferedReader().readText().trim()
                 lsofProcess.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
                 
-                // #region agent log
-                
                 if (pidOutput.isNotEmpty()) {
                     val pids = pidOutput.lines().filter { it.all { char -> char.isDigit() } }
-                    // #region agent log
-                    
                     for (pidStr in pids) {
                         val pid = pidStr.toLong()
                         if (pid > 0 && processManager.isProcessAlive(pid)) {
-                            // #region agent log
                             LOG.info("Killing process $pid listening on port $port")
                             try {
                                 processManager.killProcess(pid, force = true)
-                                // #region agent log
                             } catch (e: Exception) {
-                                // #region agent log
                                 LOG.warn("Failed to kill process $pid on port $port: ${e.message}")
                             }
                         }
                     }
                 } else {
-                    // #region agent log
+                    LOG.debug("No processes found on port $port")
                 }
             }
         } catch (e: Exception) {
-            // #region agent log
             LOG.warn("Failed to kill processes on port $port: ${e.message}")
         }
     }

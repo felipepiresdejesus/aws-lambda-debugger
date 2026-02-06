@@ -35,6 +35,18 @@ class LambdaTestRunConfiguration(
     override fun getConfigurationEditor(): SettingsEditor<out RunConfiguration> {
         return LambdaTestSettingsEditor(project)
     }
+
+    override fun suggestedName(): String? {
+        val path = projectPath ?: return null
+        return java.io.File(path).nameWithoutExtension
+    }
+
+    override fun isGeneratedName(): Boolean {
+        val currentName = name
+        return currentName.startsWith("Unnamed") ||
+                currentName.startsWith("Lambda Test") ||
+                currentName == suggestedName()
+    }
     
     override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState {
         return LambdaTestRunState(project, this, environment)
